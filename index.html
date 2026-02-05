@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>UW Coffee Map</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.css" rel="stylesheet">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.8.1/mapbox-gl.js"></script>
+
+  <style>
+    body { margin: 0; padding: 0; }
+    /* Two maps stacked */
+    #map1, #map4 {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 100%;
+    }
+    /* Start with map1 visible, map4 hidden */
+    #map4 { display: none; }
+
+    #menu {
+      background: #fff;
+      position: absolute;
+      z-index: 9999;
+      top: 10px;
+      right: 10px;
+      border-radius: 3px;
+      width: 160px;
+      border: 1px solid rgba(0,0,0,0.4);
+      font-family: 'Open Sans', sans-serif;
+    }
+
+    #menu a {
+      font-size: 13px;
+      color: #404040;
+      display: block;
+      padding: 10px;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(0,0,0,0.25);
+      text-align: center;
+      cursor: pointer;
+    }
+
+    #menu a:last-child { border: none; }
+    #menu a:hover { background-color: #f8f8f8; }
+    #menu a.active { background-color: #3887be; color: #fff; }
+  </style>
+</head>
+
+<body>
+  <nav id="menu"></nav>
+  <div id="map1"></div>
+  <div id="map4"></div>
+
+  <script>
+    mapboxgl.accessToken =
+      'pk.eyJ1IjoiaXJ2aW5nMjA2IiwiYSI6ImNta3lxcWYzYTBhejYzZG9qeGE1NTZwNWYifQ.q3yHfLUJlNbuD54lTJD2rQ';
+
+    const BASEMAP1_STYLE = 'mapbox://styles/irving206/cml7xburr001501sg74qu8jkd';
+    const BASEMAP4_STYLE = 'mapbox://styles/irving206/cml8z6tas001i01sz5s3fah9p';
+
+    const CENTER = [-122.3035, 47.6553];
+    const ZOOM = 13;
+
+    // Overlay state (so Coffee/Combined stay consistent)
+    const overlayState = { coffee: false, combined: false };
+
+    // Create TWO maps
+    const mapA = new mapboxgl.Map({
+      container: 'map1',
+      style: BASEMAP1_STYLE,
+      center: CENTER,
+      zoom: ZOOM
+    });
+
+    const mapB = new mapboxgl.Map({
+      container: 'map4',
+      style: BASEMAP4_STYLE,
+      center: CENTER,
+      zoom: ZOOM
+    });
+
+    // Helper: add raster overlays to a map
+    function addOverlaysTo(map) {
+      if (!map.getSource('coffee-src')) {
+        map.addSource('coffee-src', {
+          type: 'raster',
+          tiles: ['assets/tileset_2/{z}/{x}/{y}.png'],
+          tileSize: 256
+        });
+      }
+      if (!map.getLayer('coffee')) {
+        map.addLayer({
+          id: 'coffee',
+          type: 'raster',
+          source: 'coffee-src',
+          layout: { visibility: overlayState.coffee ? 'visible' : 'none' }
+        });
+      }
+
+      if (!map.getSource('combined-src')) {
+        map.addSource('combined-src', {
+          type: 'raster',
+          tiles: ['assets/tileset_3/{z}/{x}/{y}.png'],
+          tileSize: 256
+        });
+      }
+      if (!map.getLayer('combined')) {
+        map.addLayer({
+          id: 'combined',
+          type: 'raster',
+          source: 'combined-src',
+          layout: { visibility: overlayState.combined ? 'visible' : 'none' }
+        });
+      }
+    }
+
+    // Add controls + overlays when each loads
+    mapA.on('load', () => {
+      addOverlaysTo(mapA);
+      mapA.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+      mapA.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
+    });
+
+    mapB.on('load', () => {
+      addOverlaysTo(mapB);
+      mapB.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+      mapB.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
+    });
+
+    // Keep maps synced (pan/zoom together)
+    let syncing = false;
+
+    function sync(fromMap, toMap) {
+      if (syncing) return;
+      syncing = true;
+      const c = fromMap.getCenter();
+      toMap.jumpTo({
+        center: [c.lng, c.lat],
+        zoom: fromMap.getZoom(),
+        bearing: fromMap.getBearing(),
+        pitch: fromMap.getPitch()
+      });
+      syncing = false;
+    }
+
+    mapA.on('move', () => sync(mapA, mapB));
+    mapB.on('move', () => sync(mapB, mapA));
+
+    // Toggle overlay on BOTH maps
+    function setOverlay(layerId, isOn, btnEl) {
+      overlayState[layerId] = isOn;
+
+      [mapA, mapB].forEach(m => {
+        if (m.getLayer(layerId)) {
+          m.setLayoutProperty(layerId, 'visibility', isOn ? 'visible' : 'none');
+        }
+      });
+
+      btnEl.className = isOn ? 'active' : '';
+    }
+
+    function toggleOverlay(layerId, btnEl) {
+      setOverlay(layerId, !overlayState[layerId], btnEl);
+    }
+
+    // Switch which basemap is visible
+    function showBasemap(which) {
+      const d1 = document.getElementById('map1');
+      const d4 = document.getElementById('map4');
+
+      if (which === 1) {
+        d1.style.display = 'block';
+        d4.style.display = 'none';
+        mapA.resize();
+      } else {
+        d1.style.display = 'none';
+        d4.style.display = 'block';
+        mapB.resize();
+      }
+    }
+
+    // Build menu
+    const menu = document.getElementById('menu');
+
+    const b1 = document.createElement('a');
+    b1.textContent = 'Basemap 1';
+    b1.className = 'active';
+
+    const b4 = document.createElement('a');
+    b4.textContent = 'Basemap 4';
+
+    const coffeeBtn = document.createElement('a');
+    coffeeBtn.textContent = 'Coffee';
+
+    const combinedBtn = document.createElement('a');
+    combinedBtn.textContent = 'Combined';
+
+    b1.onclick = (e) => {
+      e.preventDefault();
+      showBasemap(1);
+      b1.className = 'active';
+      b4.className = '';
+    };
+
+    b4.onclick = (e) => {
+      e.preventDefault();
+      showBasemap(4);
+      b4.className = 'active';
+      b1.className = '';
+    };
+
+    coffeeBtn.onclick = (e) => { e.preventDefault(); toggleOverlay('coffee', coffeeBtn); };
+    combinedBtn.onclick = (e) => { e.preventDefault(); toggleOverlay('combined', combinedBtn); };
+
+    menu.appendChild(b1);
+    menu.appendChild(b4);
+    menu.appendChild(coffeeBtn);
+    menu.appendChild(combinedBtn);
+  </script>
+</body>
+</html>
